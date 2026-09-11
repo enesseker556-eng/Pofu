@@ -6,8 +6,10 @@ package com.pofu.rider.core
  */
 object CommandParser {
 
-    private val CANCEL = listOf("iptal", "bosver", "bos ver", "vazgectim", "birsey yok", "kapat")
-    private val HANGUP = listOf("kapat telefonu", "telefonu kapat", "aramayi kapat", "kapa")
+    // Dikkat: buraya yalin "kapat" koyma. "muzigi kapat" da onunla eslesip
+    // muzigi durdurmak yerine komutu iptal ediyordu.
+    private val CANCEL = listOf("iptal", "bosver", "bos ver", "vazgectim", "bir sey yok", "birsey yok")
+    private val HANGUP = listOf("kapat telefonu", "telefonu kapat", "aramayi kapat")
     private val PLAY = listOf("cal", "muzik cal", "muzigi ac", "muzik ac", "devam", "devam et", "baslat", "oynat")
     private val PAUSE = listOf("durdur", "duraklat", "muzigi durdur", "sus", "sustur", "muzigi kapat", "dur")
     private val NEXT = listOf("sonraki", "ileri", "gec", "atla", "degistir", "sonraki sarki",

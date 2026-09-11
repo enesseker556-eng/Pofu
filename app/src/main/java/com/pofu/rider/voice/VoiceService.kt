@@ -3,6 +3,8 @@ package com.pofu.rider.voice
 import android.app.Notification
 import android.app.PendingIntent
 import android.app.Service
+import android.content.BroadcastReceiver
+import android.content.IntentFilter
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
@@ -20,6 +22,7 @@ import android.speech.SpeechRecognizer
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
+import com.pofu.rider.BuildConfig
 import com.pofu.rider.PofuApp
 import com.pofu.rider.R
 import com.pofu.rider.core.Command
@@ -51,6 +54,7 @@ class VoiceService : Service() {
     private var recognizer: SpeechRecognizer? = null
     private var wakeLock: PowerManager.WakeLock? = null
     private var tone: ToneGenerator? = null
+    private var testReceiver: BroadcastReceiver? = null
 
     /** Ayni anda iki dinleme baslatmamak icin. */
     private var busy = false
@@ -69,6 +73,37 @@ class VoiceService : Service() {
         audioRoute = AudioRoute(this)
         wakeWord = WakeWordEngine(this) { main.post { onWakeWordDetected() } }
         tone = runCatching { ToneGenerator(AudioManager.STREAM_NOTIFICATION, 80) }.getOrNull()
+        registerTestReceiver()
+    }
+
+    /**
+     * Sadece debug derlemesinde: mikrofonu atlayip komut metnini dogrudan besler.
+     * Emulatorde mikrofon olmadigi icin tum komutlari boyle deneyebiliyoruz.
+     *
+     *   adb shell am broadcast -a com.pofu.rider.TEST_COMMAND \
+     *       -p com.pofu.rider --es text "ahmeti ara"
+     */
+    private fun registerTestReceiver() {
+        if (!BuildConfig.DEBUG) return
+        testReceiver = object : BroadcastReceiver() {
+            override fun onReceive(context: Context?, intent: Intent?) {
+                val text = intent?.getStringExtra("text").orEmpty()
+                if (text.isBlank()) return
+                Log.i(TAG, "TEST komut: $text")
+                main.post {
+                    busy = true
+                    cycleId++
+                    handleResults(listOf(text))
+                }
+            }
+        }
+        val filter = IntentFilter("com.pofu.rider.TEST_COMMAND")
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(testReceiver, filter, RECEIVER_EXPORTED)
+        } else {
+            @Suppress("UnspecifiedRegisterReceiverFlag")
+            registerReceiver(testReceiver, filter)
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -306,6 +341,8 @@ class VoiceService : Service() {
         main.removeCallbacksAndMessages(null)
         recognizer?.let { runCatching { it.destroy() } }
         recognizer = null
+        testReceiver?.let { runCatching { unregisterReceiver(it) } }
+        testReceiver = null
         wakeWord.release()
         speaker.release()
         audioRoute.release()

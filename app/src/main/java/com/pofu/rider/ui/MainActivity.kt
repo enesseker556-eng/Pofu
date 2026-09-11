@@ -144,6 +144,33 @@ private fun SetupScreen() {
             }
         }
 
+        // ---- durum / tani
+        item {
+            PofuCard {
+                StatusRow("Servis", if (running.phase == com.pofu.rider.voice.Phase.STOPPED)
+                    "durdu" else "çalışıyor",
+                    running.phase != com.pofu.rider.voice.Phase.STOPPED)
+                StatusRow("Uyandırma kelimesi", running.wakeWord, running.wakeWord != "yok")
+                StatusRow(
+                    "Picovoice anahtarı",
+                    if (accessKey.isBlank()) "girilmemiş" else "girildi",
+                    accessKey.isNotBlank()
+                )
+                if (running.error != null) {
+                    Spacer(Modifier.height(8.dp))
+                    Text(running.error!!, color = Bad, fontSize = 13.sp)
+                }
+                if (running.wakeWord == "yok" && running.phase != com.pofu.rider.voice.Phase.STOPPED) {
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        "Uyandırma kelimesi kapalı. \"Hey Pofu\" demek işe yaramaz; " +
+                            "komut vermek için sürüş ekranındaki mikrofon tuşuna bas.",
+                        color = TextLo, fontSize = 12.sp
+                    )
+                }
+            }
+        }
+
         item {
             OutlinedButton(
                 onClick = {
@@ -371,6 +398,21 @@ private fun PermissionRow(item: PermissionItem, onFix: () -> Unit) {
                 ) { Text("Ver", fontSize = 13.sp) }
             }
         }
+    }
+}
+
+@Composable
+private fun StatusRow(label: String, value: String, good: Boolean) {
+    Row(
+        Modifier.fillMaxWidth().padding(vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            Modifier.size(8.dp).clip(CircleShape).background(if (good) Good else Bad)
+        )
+        Spacer(Modifier.width(10.dp))
+        Text(label, color = TextLo, fontSize = 13.sp, modifier = Modifier.weight(1f))
+        Text(value, color = if (good) TextHi else Bad, fontSize = 13.sp)
     }
 }
 
