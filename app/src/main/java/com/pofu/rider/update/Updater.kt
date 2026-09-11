@@ -18,7 +18,7 @@ data class Release(
     val versionCode: Long,
     val versionName: String,
     val notes: String,
-    /** Public repo'da dogrudan indirme linki, private'ta API asset adresi. */
+    /** Depodaki APK'nin ham indirme adresi. */
     val downloadUrl: String
 )
 
@@ -33,19 +33,29 @@ sealed interface UpdateStatus {
 }
 
 /**
- * GitHub Releases uzerinden kendini gunceller.
+ * Uygulama kendini depodan gunceller.
  *
- * CI her push'ta bir release yayinliyor ve APK'yi ekliyor; surum numarasi
- * Actions'in calisma numarasi (run number). Uygulama acildiginda son release'e
- * bakar, kendi surumunden buyukse indirip kurulum ekranini acar.
- *
- * Repo private ise GitHub API token ister; Ayarlar'daki alana yapistirilan
- * fine-grained token (Contents: Read) yeterli. Public repo'da token gerekmez.
+ * Uygulama her acildiginda dist/version.json okunur; oradaki versionCode
+ * telefondakinden buyukse APK indirilir ve kurulum ekrani acilir. Son "Yukle"
+ * dokunusunu kaldiramiyoruz: sessiz kurulum sadece sistem uygulamalarinin
+ * alabildigi bir yetki.
  */
 object Updater {
 
     private const val TAG = "PofuUpdater"
-    private const val API = "https://api.github.com/repos"
+
+    /**
+     * Surum bilgisi depodaki dist/version.json dosyasindan geliyor.
+     *
+     * Neden GitHub Releases degil: Actions faturalandirma kilidi yuzunden hic
+     * release yayinlanamiyor. Depo public oldugu icin ham dosya adresi hem
+     * token istemiyor hem de her push'ta kendiliginden guncel oluyor.
+     */
+    private fun manifestUrl(repo: String) =
+        "https://raw.githubusercontent.com/$repo/main/dist/version.json"
+
+    private fun apkUrl(repo: String, path: String) =
+        "https://github.com/$repo/raw/main/$path"
 
     /** Telefonda kurulu olan surum. */
     fun currentVersionCode(ctx: Context): Long {
@@ -61,41 +71,21 @@ object Updater {
     fun currentVersionName(ctx: Context): String =
         ctx.packageManager.getPackageInfo(ctx.packageName, 0).versionName ?: "?"
 
-    /** Son release'i sorgular. Guncel ise null doner. */
+    /** Son surumu sorgular. Guncel ise null doner. */
     suspend fun check(ctx: Context): Result<Release?> = withContext(Dispatchers.IO) {
         runCatching {
             val repo = Prefs.updateRepo
             if (repo.isBlank()) error("Guncelleme deposu ayarlanmamis")
 
-            val json = httpGet("$API/$repo/releases/latest", "application/vnd.github+json")
-            val obj = JSONObject(json)
-
-            // Etiket "v12" formatinda; surum numarasi oradan geliyor.
-            val tag = obj.optString("tag_name").removePrefix("v")
-            val code = tag.toLongOrNull() ?: error("Surum etiketi okunamadi: $tag")
-
-            val assets = obj.optJSONArray("assets") ?: error("Release'de APK yok")
-            var url: String? = null
-            for (i in 0 until assets.length()) {
-                val a = assets.getJSONObject(i)
-                if (a.optString("name").endsWith(".apk")) {
-                    // Private repo'da browser_download_url token ile calismaz;
-                    // API asset adresi + Accept: octet-stream gerekiyor.
-                    url = if (Prefs.githubToken.isBlank()) {
-                        a.optString("browser_download_url")
-                    } else {
-                        a.optString("url")
-                    }
-                    break
-                }
-            }
-            if (url.isNullOrBlank()) error("Release'de APK bulunamadi")
+            val obj = JSONObject(httpGet(manifestUrl(repo), "application/json"))
+            val code = obj.optLong("versionCode", -1L)
+            if (code < 0) error("version.json icinde versionCode yok")
 
             val release = Release(
                 versionCode = code,
-                versionName = obj.optString("name").ifBlank { "v$code" },
-                notes = obj.optString("body").take(500),
-                downloadUrl = url
+                versionName = obj.optString("versionName").ifBlank { "v$code" },
+                notes = obj.optString("notes").take(500),
+                downloadUrl = apkUrl(repo, obj.optString("apk").ifBlank { "dist/pofu.apk" })
             )
             Prefs.lastCheckAt = System.currentTimeMillis()
             if (release.versionCode > currentVersionCode(ctx)) release else null

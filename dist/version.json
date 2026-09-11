@@ -1,0 +1,6 @@
+{
+  "versionCode": 3,
+  "versionName": "1.2",
+  "notes": "Panda teması, mor arayüz, hareketli kapak. Otomatik güncelleme artık gerçekten çalışıyor.",
+  "apk": "dist/pofu.apk"
+}

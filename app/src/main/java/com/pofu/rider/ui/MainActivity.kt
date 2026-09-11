@@ -54,6 +54,9 @@ import androidx.compose.runtime.DisposableEffect
 import com.pofu.rider.core.Prefs
 import com.pofu.rider.voice.VoiceService
 
+/** Ekran kenari ile icerik arasindaki bosluk; kapak bundan muaf, kenardan kenara. */
+private val SIDE = 20.dp
+
 /** Kurulum ve ayar ekrani. Motordayken degil, garajda kullanilir. */
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -101,17 +104,11 @@ private fun SetupScreen() {
         modifier = Modifier
             .fillMaxSize()
             .background(Ink),
-        contentPadding = PaddingValues(20.dp),
+        contentPadding = PaddingValues(bottom = 20.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
         item {
-            Column {
-                Text("POFU", color = Orange, fontSize = 34.sp, fontWeight = FontWeight.Black)
-                Text(
-                    "Motorcu sesli asistani",
-                    color = TextLo, fontSize = 14.sp
-                )
-            }
+            PandaHeader(listening = running.phase == com.pofu.rider.voice.Phase.LISTENING)
         }
 
         // ---- baslat / durdur
@@ -124,6 +121,7 @@ private fun SetupScreen() {
                 enabled = canStart || isOn,
                 modifier = Modifier
                     .fillMaxWidth()
+                    .padding(horizontal = SIDE)
                     .height(64.dp),
                 shape = RoundedCornerShape(16.dp),
                 colors = ButtonDefaults.buttonColors(
@@ -140,7 +138,8 @@ private fun SetupScreen() {
                 Spacer(Modifier.height(6.dp))
                 Text(
                     "Mikrofon ve bildirim izni olmadan başlayamaz.",
-                    color = Bad, fontSize = 13.sp
+                    color = Bad, fontSize = 13.sp,
+                    modifier = Modifier.padding(horizontal = SIDE)
                 )
             } else if (missing.isNotEmpty()) {
                 // Engellemiyor ama eksik: ne calismayacagini acikca soyle.
@@ -148,7 +147,8 @@ private fun SetupScreen() {
                 Text(
                     "Eksik izinler var: " + missing.joinToString(", ") { it.label } +
                         ". Başlayabilir ama bazı şeyler çalışmaz.",
-                    color = Orange, fontSize = 12.sp
+                    color = Orange, fontSize = 12.sp,
+                    modifier = Modifier.padding(horizontal = SIDE)
                 )
             }
         }
@@ -188,7 +188,7 @@ private fun SetupScreen() {
                             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                     )
                 },
-                modifier = Modifier.fillMaxWidth().height(52.dp),
+                modifier = Modifier.fillMaxWidth().padding(horizontal = SIDE).height(52.dp),
                 shape = RoundedCornerShape(14.dp)
             ) {
                 Text("Sürüş ekranını aç", fontSize = 15.sp)
@@ -197,7 +197,9 @@ private fun SetupScreen() {
 
         // ---- guncelleme
         item { SectionTitle("Güncelleme") }
-        item { UpdateCard(refreshKey) }
+        item {
+            Box(Modifier.padding(horizontal = SIDE)) { UpdateCard(refreshKey) }
+        }
         item {
             PofuCard {
                 ToggleRow(
@@ -242,7 +244,10 @@ private fun SetupScreen() {
             }
         }
         item {
-            TextButton(onClick = { requestPerms.launch(Permissions.runtimePermissions()) }) {
+            TextButton(
+                onClick = { requestPerms.launch(Permissions.runtimePermissions()) },
+                modifier = Modifier.padding(horizontal = SIDE - 8.dp)
+            ) {
                 Text("Hepsini birden iste", color = Orange)
             }
         }
@@ -356,14 +361,14 @@ private fun SectionTitle(text: String) {
         color = TextLo,
         fontSize = 12.sp,
         fontWeight = FontWeight.Bold,
-        modifier = Modifier.padding(top = 10.dp, bottom = 2.dp)
+        modifier = Modifier.padding(start = SIDE, end = SIDE, top = 10.dp, bottom = 2.dp)
     )
 }
 
 @Composable
 private fun PofuCard(content: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit) {
     Card(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier.fillMaxWidth().padding(horizontal = SIDE),
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(containerColor = Surface1)
     ) {
@@ -374,7 +379,7 @@ private fun PofuCard(content: @Composable androidx.compose.foundation.layout.Col
 @Composable
 private fun PermissionRow(item: PermissionItem, onFix: () -> Unit) {
     Card(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier.fillMaxWidth().padding(horizontal = SIDE),
         shape = RoundedCornerShape(14.dp),
         colors = CardDefaults.cardColors(containerColor = Surface1)
     ) {

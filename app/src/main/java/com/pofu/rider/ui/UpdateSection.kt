@@ -29,6 +29,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.pofu.rider.core.Prefs
+import com.pofu.rider.update.Release
 import com.pofu.rider.update.UpdateStatus
 import com.pofu.rider.update.Updater
 import kotlinx.coroutines.launch
@@ -47,25 +48,7 @@ fun UpdateCard(refreshKey: Int) {
     val current = remember { Updater.currentVersionCode(ctx) }
     val currentName = remember { Updater.currentVersionName(ctx) }
 
-    fun check(manual: Boolean) {
-        scope.launch {
-            status = UpdateStatus.Checking
-            val result = Updater.check(ctx)
-            status = result.fold(
-                onSuccess = { rel ->
-                    if (rel == null) UpdateStatus.UpToDate
-                    else UpdateStatus.Available(rel)
-                },
-                onFailure = { e ->
-                    // Otomatik kontrolde sessiz kal; internet yoksa kullaniciyi rahatsiz etme.
-                    if (manual) UpdateStatus.Failed(e.message ?: "Kontrol basarisiz")
-                    else UpdateStatus.Idle
-                }
-            )
-        }
-    }
-
-    fun downloadAndInstall(rel: com.pofu.rider.update.Release) {
+    fun downloadAndInstall(rel: Release) {
         scope.launch {
             status = UpdateStatus.Downloading(0)
             val result = Updater.download(ctx, rel) { pct ->
@@ -74,12 +57,36 @@ fun UpdateCard(refreshKey: Int) {
             result.fold(
                 onSuccess = { file ->
                     status = UpdateStatus.Ready(file, rel)
-                    if (Updater.canInstall(ctx)) {
-                        Updater.install(ctx, file)
-                    }
+                    if (Updater.canInstall(ctx)) Updater.install(ctx, file)
                 },
                 onFailure = { e ->
                     status = UpdateStatus.Failed(e.message ?: "Indirme basarisiz")
+                }
+            )
+        }
+    }
+
+    fun check(manual: Boolean) {
+        scope.launch {
+            status = UpdateStatus.Checking
+            Updater.check(ctx).fold(
+                onSuccess = { rel ->
+                    if (rel == null) {
+                        status = UpdateStatus.UpToDate
+                    } else {
+                        status = UpdateStatus.Available(rel)
+                        // Elle beklemek yerine hemen indir ve kurulumu ac:
+                        // kullaniciya sadece Android'in "Yukle" onayi kaliyor.
+                        if (Prefs.autoUpdate) downloadAndInstall(rel)
+                    }
+                },
+                onFailure = { e ->
+                    // Otomatik kontrolde sessiz kal; internet yoksa kullaniciyi rahatsiz etme.
+                    status = if (manual) {
+                        UpdateStatus.Failed(e.message ?: "Kontrol basarisiz")
+                    } else {
+                        UpdateStatus.Idle
+                    }
                 }
             )
         }
