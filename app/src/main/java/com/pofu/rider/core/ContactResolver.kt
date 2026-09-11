@@ -13,6 +13,12 @@ object ContactResolver {
 
     private const val ACCEPT_THRESHOLD = 0.62
 
+    /** Rehberde yazmayan hitaplar. Normalize edilmis, eki atilmis halleri. */
+    private val HONORIFICS = setOf(
+        "abi", "abla", "bey", "hanim", "amca", "teyze", "dayi", "hala",
+        "hoca", "usta", "kardes", "kanka", "reis", "baskan"
+    )
+
     fun hasPermission(ctx: Context): Boolean =
         ContextCompat.checkSelfPermission(ctx, Manifest.permission.READ_CONTACTS) ==
             PackageManager.PERMISSION_GRANTED
@@ -24,9 +30,18 @@ object ContactResolver {
     fun resolve(ctx: Context, spokenName: String): ContactMatch? {
         if (!hasPermission(ctx)) return null
 
-        val query = TurkishText.stripSuffix(TurkishText.normalize(spokenName))
+        // Ekleri kelime kelime atiyoruz: "mehmet abiyi" -> ["mehmet", "abi"].
+        // Tum cumleye birden atsaydik "abiyi" oldugu gibi kalir ve skoru dusururdu.
+        val words = TurkishText.normalize(spokenName)
+            .split(" ")
+            .filter { it.isNotBlank() }
+            .map { TurkishText.stripSuffix(it) }
+
+        // "abi", "bey" gibi hitaplar rehberde yazmaz; eslestirmede sayarsak
+        // "Mehmet abiyi ara" dogru kisiyi bulamaz.
+        val queryWords = words.filterNot { it in HONORIFICS }.ifEmpty { words }
+        val query = queryWords.joinToString(" ")
         if (query.isBlank()) return null
-        val queryWords = query.split(" ").filter { it.isNotBlank() }
 
         val cursor = ctx.contentResolver.query(
             ContactsContract.CommonDataKinds.Phone.CONTENT_URI,

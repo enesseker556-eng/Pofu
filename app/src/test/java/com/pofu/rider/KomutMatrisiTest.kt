@@ -87,6 +87,19 @@ class KomutMatrisiTest {
             .forEach { assertCmd(it, Command.HangUp) }
     }
 
+    /** Emulatorde yakalandi: hedef Maps'e normalize edilmis gidiyordu. */
+    @Test
+    fun `navigasyon hedefi turkce halini korumali`() {
+        val c = CommandParser.parse("Kadıköy'e git") as Command.Navigate
+        assertEquals("Kadıköy'e", c.destination)
+
+        val d = CommandParser.parse("Beşiktaş yol tarifi") as Command.Navigate
+        assertEquals("Beşiktaş", d.destination)
+
+        val e = CommandParser.parse("navigasyon Ümraniye") as Command.Navigate
+        assertEquals("Ümraniye", e.destination)
+    }
+
     @Test
     fun `anlamsiz girdiler komut sanilmamali`() {
         listOf(

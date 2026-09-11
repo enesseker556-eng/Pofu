@@ -79,7 +79,8 @@ private fun SetupScreen() {
     }
 
     val perms = remember(refreshKey) { Permissions.status(ctx) }
-    val allRequiredGranted = perms.filter { it.required }.all { it.granted }
+    val canStart = perms.filter { it.blocking }.all { it.granted }
+    val missing = perms.filter { !it.granted && it.important }
     val running by VoiceService.state.collectAsStateWithLifecycle()
 
     val requestPerms = rememberLauncherForActivityResult(
@@ -120,7 +121,7 @@ private fun SetupScreen() {
                 onClick = {
                     if (isOn) VoiceService.stop(ctx) else VoiceService.start(ctx)
                 },
-                enabled = allRequiredGranted || isOn,
+                enabled = canStart || isOn,
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(64.dp),
@@ -135,11 +136,19 @@ private fun SetupScreen() {
                     fontSize = 17.sp, fontWeight = FontWeight.Bold
                 )
             }
-            if (!allRequiredGranted) {
+            if (!canStart) {
                 Spacer(Modifier.height(6.dp))
                 Text(
-                    "Önce aşağıdaki zorunlu izinleri ver.",
+                    "Mikrofon ve bildirim izni olmadan başlayamaz.",
                     color = Bad, fontSize = 13.sp
+                )
+            } else if (missing.isNotEmpty()) {
+                // Engellemiyor ama eksik: ne calismayacagini acikca soyle.
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    "Eksik izinler var: " + missing.joinToString(", ") { it.label } +
+                        ". Başlayabilir ama bazı şeyler çalışmaz.",
+                    color = Orange, fontSize = 12.sp
                 )
             }
         }
@@ -377,12 +386,12 @@ private fun PermissionRow(item: PermissionItem, onFix: () -> Unit) {
                 Modifier
                     .size(10.dp)
                     .clip(CircleShape)
-                    .background(if (item.granted) Good else if (item.required) Bad else TextLo)
+                    .background(if (item.granted) Good else if (item.blocking) Bad else Orange)
             )
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
                 Text(
-                    item.label + if (item.required) "" else "  (isteğe bağlı)",
+                    item.label + if (item.blocking) "  (zorunlu)" else "",
                     color = TextHi, fontSize = 15.sp, fontWeight = FontWeight.SemiBold
                 )
                 Text(item.why, color = TextLo, fontSize = 12.sp)

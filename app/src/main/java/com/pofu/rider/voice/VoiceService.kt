@@ -73,6 +73,7 @@ class VoiceService : Service() {
         audioRoute = AudioRoute(this)
         wakeWord = WakeWordEngine(this) { main.post { onWakeWordDetected() } }
         tone = runCatching { ToneGenerator(AudioManager.STREAM_NOTIFICATION, 80) }.getOrNull()
+        Log.i(TAG, "onCreate; debug=${BuildConfig.DEBUG}")
         registerTestReceiver()
     }
 
@@ -97,6 +98,7 @@ class VoiceService : Service() {
                 }
             }
         }
+        Log.i(TAG, "test alicisi kaydediliyor")
         val filter = IntentFilter("com.pofu.rider.TEST_COMMAND")
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             registerReceiver(testReceiver, filter, RECEIVER_EXPORTED)
@@ -237,6 +239,7 @@ class VoiceService : Service() {
             Log.e(TAG, "komut uygulanamadi", e)
             "Bir sorun cikti"
         }
+        Log.i(TAG, "SONUC duyulan=\"${candidates.first()}\" komut=$chosen cevap=\"$reply\"")
         finishCycle(reply)
     }
 

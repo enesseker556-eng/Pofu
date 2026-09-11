@@ -28,7 +28,7 @@ object CommandParser {
         if (matches(t, HANGUP)) return Command.HangUp
 
         parseCall(t)?.let { return it }
-        parseNavigate(t)?.let { return it }
+        parseNavigate(t, raw)?.let { return it }
 
         if (matches(t, VOL_UP)) return Command.Volume(+1)
         if (matches(t, VOL_DOWN)) return Command.Volume(-1)
@@ -64,21 +64,48 @@ object CommandParser {
         return null
     }
 
-    /** "eve git", "kadikoye yol tarifi", "navigasyon besiktas" */
-    private fun parseNavigate(t: String): Command.Navigate? {
+    /**
+     * "eve git", "kadikoye yol tarifi", "navigasyon besiktas"
+     *
+     * Hedefi HAM metinden cikariyoruz: normalize edilmis hali Maps'e
+     * "kadikoye" diye giderdi, oysa "Kadikoy'e" cok daha iyi sonuc veriyor.
+     */
+    private fun parseNavigate(t: String, raw: String): Command.Navigate? {
         val markers = listOf("yol tarifi", "navigasyon", "rota")
         for (m in markers) {
             if (t == m) return Command.Navigate("")
-            if (t.startsWith("$m ")) return Command.Navigate(t.removePrefix("$m ").trim())
-            if (t.endsWith(" $m")) return Command.Navigate(t.removeSuffix(" $m").trim())
+            if (t.startsWith("$m ")) {
+                val dropped = m.split(" ").size
+                return Command.Navigate(rawWords(raw, t, dropStart = dropped))
+            }
+            if (t.endsWith(" $m")) {
+                val dropped = m.split(" ").size
+                return Command.Navigate(rawWords(raw, t, dropEnd = dropped))
+            }
         }
         for (v in listOf("gidelim", "git")) {
             if (t.endsWith(" $v")) {
                 val dest = t.removeSuffix(" $v").trim()
-                if (dest.isNotBlank() && dest.split(" ").size <= 4) return Command.Navigate(dest)
+                if (dest.isNotBlank() && dest.split(" ").size <= 4) {
+                    return Command.Navigate(rawWords(raw, t, dropEnd = 1))
+                }
             }
         }
         return null
+    }
+
+    /**
+     * Normalize edilmis metinden bastan/sondan atilan kelime sayisi kadar
+     * ham metinden de atar. Kelime sayilari tutmazsa (noktalama bolmus olabilir)
+     * normalize edilmis hale duser - yanlis kesmektense sade metin iyidir.
+     */
+    private fun rawWords(raw: String, normalized: String, dropStart: Int = 0, dropEnd: Int = 0): String {
+        val rawParts = raw.split(Regex("""\s+""")).filter { it.isNotBlank() }
+        val normParts = normalized.split(" ").filter { it.isNotBlank() }
+        if (rawParts.size != normParts.size) {
+            return normParts.drop(dropStart).dropLast(dropEnd).joinToString(" ")
+        }
+        return rawParts.drop(dropStart).dropLast(dropEnd).joinToString(" ")
     }
 
     /** Isim adayini temizler; anlamsizsa null doner. */

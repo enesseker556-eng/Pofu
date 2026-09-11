@@ -69,7 +69,8 @@ class CommandParserTest {
     fun `navigasyon`() {
         val c = CommandParser.parse("Kadıköy'e git")
         assertTrue(c is Command.Navigate)
-        assertEquals("kadikoye", (c as Command.Navigate).destination)
+        // Hedef artik ham metinden geliyor; Maps'e Turkce hali gidiyor.
+        assertEquals("Kadıköy'e", (c as Command.Navigate).destination)
         assertTrue(CommandParser.parse("yol tarifi") is Command.Navigate)
     }
 

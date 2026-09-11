@@ -15,7 +15,10 @@ data class PermissionItem(
     val label: String,
     val why: String,
     val granted: Boolean,
-    val required: Boolean
+    /** Bu izin olmadan uygulama hic calismaz; baslat tusu kilitli kalir. */
+    val blocking: Boolean,
+    /** Eksikse bir sey bozulur ama uygulama yine de baslar. */
+    val important: Boolean = true
 )
 
 /** Uygulamanin calismasi icin gereken izinlerin tek yerden durumu. */
@@ -48,21 +51,21 @@ object Permissions {
             PermissionItem(
                 Manifest.permission.RECORD_AUDIO, "Mikrofon",
                 "Wake word ve sesli komut icin. Bu olmadan hicbir sey calismaz.",
-                has(ctx, Manifest.permission.RECORD_AUDIO), required = true
+                has(ctx, Manifest.permission.RECORD_AUDIO), blocking = true
             )
         )
         add(
             PermissionItem(
                 Manifest.permission.CALL_PHONE, "Telefon etme",
-                "Komutla dogrudan arama baslatmak icin. Kapaliysa cevirici ekrani acilir.",
-                has(ctx, Manifest.permission.CALL_PHONE), required = true
+                "Eksikse arama komutlari calismaz, muzik ve navigasyon calisir.",
+                has(ctx, Manifest.permission.CALL_PHONE), blocking = false
             )
         )
         add(
             PermissionItem(
                 Manifest.permission.READ_CONTACTS, "Rehber",
-                "Soyledigin ismi numaraya cevirmek icin.",
-                has(ctx, Manifest.permission.READ_CONTACTS), required = true
+                "Eksikse isimle arama yapilamaz.",
+                has(ctx, Manifest.permission.READ_CONTACTS), blocking = false
             )
         )
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -70,7 +73,7 @@ object Permissions {
                 PermissionItem(
                     Manifest.permission.POST_NOTIFICATIONS, "Bildirim",
                     "Surus modu kalici bildirimle calisir; izin yoksa Android servisi oldurur.",
-                    has(ctx, Manifest.permission.POST_NOTIFICATIONS), required = true
+                    has(ctx, Manifest.permission.POST_NOTIFICATIONS), blocking = true
                 )
             )
         }
@@ -79,22 +82,22 @@ object Permissions {
                 PermissionItem(
                     Manifest.permission.BLUETOOTH_CONNECT, "Bluetooth",
                     "Kask kulakliginin mikrofonuna gecmek icin.",
-                    has(ctx, Manifest.permission.BLUETOOTH_CONNECT), required = false
+                    has(ctx, Manifest.permission.BLUETOOTH_CONNECT), blocking = false, important = false
                 )
             )
         }
         add(
             PermissionItem(
                 "overlay", "Diger uygulamalarin ustunde goster",
-                "Telefon kilitliyken arama baslatabilmek ve surus ekranini acabilmek icin SART.",
-                canDrawOverlay(ctx), required = true
+                "Eksikse telefon kilitliyken arama baslatilamaz.",
+                canDrawOverlay(ctx), blocking = false
             )
         )
         add(
             PermissionItem(
                 "battery", "Pil optimizasyonundan muaf",
-                "Olmazsa Android bir sure sonra dinlemeyi kapatir.",
-                isBatteryUnrestricted(ctx), required = true
+                "Eksikse Android bir sure sonra dinlemeyi sessizce kapatir.",
+                isBatteryUnrestricted(ctx), blocking = false
             )
         )
     }
