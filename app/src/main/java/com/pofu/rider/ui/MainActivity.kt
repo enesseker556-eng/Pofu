@@ -93,6 +93,9 @@ private fun SetupScreen() {
     var tts by remember { mutableStateOf(Prefs.speakFeedback) }
     var directCall by remember { mutableStateOf(Prefs.directCall) }
     var autoStart by remember { mutableStateOf(Prefs.autoStart) }
+    var autoUpdate by remember { mutableStateOf(Prefs.autoUpdate) }
+    var updateRepo by remember { mutableStateOf(Prefs.updateRepo) }
+    var ghToken by remember { mutableStateOf(Prefs.githubToken) }
 
     LazyColumn(
         modifier = Modifier
@@ -154,6 +157,41 @@ private fun SetupScreen() {
                 shape = RoundedCornerShape(14.dp)
             ) {
                 Text("Sürüş ekranını aç", fontSize = 15.sp)
+            }
+        }
+
+        // ---- guncelleme
+        item { SectionTitle("Güncelleme") }
+        item { UpdateCard(refreshKey) }
+        item {
+            PofuCard {
+                ToggleRow(
+                    "Açılışta güncelleme ara",
+                    "Uygulamayı her açtığında GitHub'daki son sürüme bakar.",
+                    autoUpdate
+                ) { autoUpdate = it; Prefs.autoUpdate = it }
+                OutlinedTextField(
+                    value = updateRepo,
+                    onValueChange = { updateRepo = it; Prefs.updateRepo = it },
+                    label = { Text("GitHub deposu (kullanıcı/depo)") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Spacer(Modifier.height(10.dp))
+                OutlinedTextField(
+                    value = ghToken,
+                    onValueChange = { ghToken = it; Prefs.githubToken = it },
+                    label = { Text("GitHub token (depo private ise)") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    "Depo public ise token gerekmez. Private ise: GitHub > Settings > " +
+                        "Developer settings > Personal access tokens > Fine-grained, " +
+                        "sadece bu depoya \"Contents: Read\" yetkisi ver.",
+                    color = TextLo, fontSize = 12.sp
+                )
             }
         }
 

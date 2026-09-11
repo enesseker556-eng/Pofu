@@ -12,8 +12,9 @@ android {
         applicationId = "com.pofu.rider"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "1.0"
+        // CI her push'ta -PversionCode=<run number> geciyor; yerelde derlerken 1 kalir.
+        versionCode = (project.findProperty("versionCode") as String?)?.toIntOrNull() ?: 1
+        versionName = (project.findProperty("versionName") as String?) ?: "1.0-yerel"
     }
 
     buildTypes {

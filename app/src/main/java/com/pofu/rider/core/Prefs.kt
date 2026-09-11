@@ -41,6 +41,27 @@ object Prefs {
         get() = sp.getBoolean("auto_start", false)
         set(v) = sp.edit().putBoolean("auto_start", v).apply()
 
+    // ------------------------------------------------------------ guncelleme
+
+    /** "kullanici/depo" bicimi. CI bu depoya release yayinlar. */
+    var updateRepo: String
+        get() = sp.getString("update_repo", "enesseker556-eng/Pofu").orEmpty()
+        set(v) = sp.edit().putString("update_repo", v.trim()).apply()
+
+    /** Depo private ise gerekli. Fine-grained token, sadece Contents: Read yetkisi. */
+    var githubToken: String
+        get() = sp.getString("gh_token", "").orEmpty()
+        set(v) = sp.edit().putString("gh_token", v.trim()).apply()
+
+    /** Uygulama her acildiginda yeni surum var mi diye baksin. */
+    var autoUpdate: Boolean
+        get() = sp.getBoolean("auto_update", true)
+        set(v) = sp.edit().putBoolean("auto_update", v).apply()
+
+    var lastCheckAt: Long
+        get() = sp.getLong("last_check", 0L)
+        set(v) = sp.edit().putLong("last_check", v).apply()
+
     /** Servis su an calisiyor mu (BootReceiver ve UI icin). */
     var serviceEnabled: Boolean
         get() = sp.getBoolean("svc_on", false)

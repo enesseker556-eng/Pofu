@@ -74,6 +74,25 @@ Wake word cihaz üzerinde çalışır (Picovoice Porcupine), internet istemez, a
 
 ---
 
+## Otomatik güncelleme
+
+Her `git push` sonrası CI yeni bir **Release** yayınlıyor ve APK'yı ekliyor. Sürüm numarası Actions'ın çalışma numarası — kendiliğinden artıyor, elle bir şey yapmıyorsun.
+
+Telefondaki uygulama her açılışta son sürüme bakar. Yenisi varsa ana ekranın üstünde **"Yeni sürüm var"** kartı çıkar → *İndir ve kur* → Android'in kurulum ekranı açılır → onayla, bitti.
+
+İlk seferde **"bu kaynaktan uygulama yükle"** izni istenir; kart üzerinden tek tuşla verirsin.
+
+**Depo private ise** bir token gerekiyor (public ise gerekmez):
+
+1. GitHub → Settings → Developer settings → Personal access tokens → **Fine-grained tokens**
+2. Repository access: sadece `Pofu`
+3. Permissions → Repository permissions → **Contents: Read-only**
+4. Üretilen token'ı uygulamadaki *GitHub token* alanına yapıştır
+
+Kurulum tamamen sessiz olamaz — sessiz kurulum sadece sistem uygulamalarına verilen bir yetki. Yapabileceğin en yakını bu: tek tuş indirme + tek tuş onay.
+
+---
+
 ## Motorda çalışması için ayarlar
 
 Rüzgâr sesi bu işin en büyük düşmanı. Sırayla dene:
