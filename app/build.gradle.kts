@@ -42,6 +42,11 @@ android {
     }
     packaging {
         resources.excludes += "/META-INF/{AL2.0,LGPL2.1}"
+        // Model dosyalari sikistirilirsa Vosk acarken cok yavasliyor.
+        jniLibs.useLegacyPackaging = true
+    }
+    androidResources {
+        noCompress += listOf("mdl", "fst", "int", "ie", "dubm", "mat", "conf", "uuid")
     }
 }
 
@@ -57,8 +62,9 @@ dependencies {
     implementation("androidx.media:media:1.7.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
 
-    // Wake word: "Hey Pofu"
-    implementation("ai.picovoice:porcupine-android:3.0.2")
+    // Cihaz uzerinde konusma tanima. Anahtar istemez, internet istemez.
+    implementation("com.alphacephei:vosk-android:0.3.47@aar")
+    implementation("net.java.dev.jna:jna:5.13.0@aar")
 
     debugImplementation("androidx.compose.ui:ui-tooling")
 

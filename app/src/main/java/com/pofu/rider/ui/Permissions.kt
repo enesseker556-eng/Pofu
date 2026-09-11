@@ -50,7 +50,7 @@ object Permissions {
         add(
             PermissionItem(
                 Manifest.permission.RECORD_AUDIO, "Mikrofon",
-                "Wake word ve sesli komut icin. Bu olmadan hicbir sey calismaz.",
+                "Sesli komut icin. Bu olmadan hicbir sey calismaz.",
                 has(ctx, Manifest.permission.RECORD_AUDIO), blocking = true
             )
         )
@@ -81,7 +81,7 @@ object Permissions {
             add(
                 PermissionItem(
                     Manifest.permission.BLUETOOTH_CONNECT, "Bluetooth",
-                    "Kask kulakliginin mikrofonuna gecmek icin.",
+                    "Kask kulakliginin mikrofonunu kullanmak icin.",
                     has(ctx, Manifest.permission.BLUETOOTH_CONNECT), blocking = false, important = false
                 )
             )

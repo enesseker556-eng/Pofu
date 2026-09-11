@@ -30,9 +30,12 @@ Copy-Item "app\build\outputs\apk\release\app-release.apk" "dist\pofu.apk" -Force
     apk         = "dist/pofu.apk"
 } | ConvertTo-Json | Set-Content "dist\version.json" -Encoding utf8
 
-git add -A
-git commit -m "Surum ${VersionName}: $Notes"
-git push origin main
+# git uyarilari stderr'e yaziyor; PowerShell bunlari hata sayip duruyordu.
+$ErrorActionPreference = "Continue"
+git add -A 2>&1 | Out-Null
+git commit -m "Surum ${VersionName}: $Notes" 2>&1 | Out-Null
+git push origin main 2>&1 | Out-Null
+if ($LASTEXITCODE -ne 0) { throw "Push basarisiz" }
 
 Write-Host "`nYayinlandi: $VersionName (kod $code)" -ForegroundColor Green
 Write-Host "Telefonda uygulamayi kapat-ac, guncelleme kendi dusecek." -ForegroundColor Green

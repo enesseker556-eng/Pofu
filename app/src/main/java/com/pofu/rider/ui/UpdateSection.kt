@@ -1,8 +1,11 @@
 package com.pofu.rider.ui
 
-import android.content.Context
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -14,7 +17,6 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -22,22 +24,20 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.pofu.rider.core.Prefs
 import com.pofu.rider.update.Release
 import com.pofu.rider.update.UpdateStatus
 import com.pofu.rider.update.Updater
 import kotlinx.coroutines.launch
 
 /**
- * Uygulama her acildiginda GitHub'daki son surume bakar; yenisi varsa
- * indirip Android'in kurulum ekranini acar. Kurulumu kullanici onaylar -
- * sessiz kurulum sadece sistem uygulamalarina ait bir yetki.
+ * Guncelleme tamamen kendiliginden yurur: uygulama acilinca bakar, yenisi
+ * varsa indirir, kurulum ekranini acar. Kullaniciya sadece is olduğunda
+ * bir sey gosteriyoruz - guncelken ekranda hicbir sey gorunmuyor.
  */
 @Composable
 fun UpdateCard(refreshKey: Int) {
@@ -45,157 +45,82 @@ fun UpdateCard(refreshKey: Int) {
     val scope = rememberCoroutineScope()
     var status by remember { mutableStateOf<UpdateStatus>(UpdateStatus.Idle) }
 
-    val current = remember { Updater.currentVersionCode(ctx) }
-    val currentName = remember { Updater.currentVersionName(ctx) }
-
     fun downloadAndInstall(rel: Release) {
         scope.launch {
             status = UpdateStatus.Downloading(0)
-            val result = Updater.download(ctx, rel) { pct ->
-                status = UpdateStatus.Downloading(pct)
-            }
-            result.fold(
-                onSuccess = { file ->
-                    status = UpdateStatus.Ready(file, rel)
-                    if (Updater.canInstall(ctx)) Updater.install(ctx, file)
-                },
-                onFailure = { e ->
-                    status = UpdateStatus.Failed(e.message ?: "Indirme basarisiz")
-                }
-            )
+            Updater.download(ctx, rel) { pct -> status = UpdateStatus.Downloading(pct) }
+                .fold(
+                    onSuccess = { file ->
+                        status = UpdateStatus.Ready(file, rel)
+                        if (Updater.canInstall(ctx)) Updater.install(ctx, file)
+                    },
+                    // Sessiz kal: internet yoksa kullaniciyi rahatsiz etmenin anlami yok,
+                    // bir sonraki acilista tekrar denenecek.
+                    onFailure = { status = UpdateStatus.Idle }
+                )
         }
     }
 
-    fun check(manual: Boolean) {
-        scope.launch {
-            status = UpdateStatus.Checking
-            Updater.check(ctx).fold(
-                onSuccess = { rel ->
-                    if (rel == null) {
-                        status = UpdateStatus.UpToDate
-                    } else {
-                        status = UpdateStatus.Available(rel)
-                        // Elle beklemek yerine hemen indir ve kurulumu ac:
-                        // kullaniciya sadece Android'in "Yukle" onayi kaliyor.
-                        if (Prefs.autoUpdate) downloadAndInstall(rel)
-                    }
-                },
-                onFailure = { e ->
-                    // Otomatik kontrolde sessiz kal; internet yoksa kullaniciyi rahatsiz etme.
-                    status = if (manual) {
-                        UpdateStatus.Failed(e.message ?: "Kontrol basarisiz")
-                    } else {
-                        UpdateStatus.Idle
-                    }
-                }
-            )
-        }
-    }
-
-    // Uygulama her acildiginda (ve ayarlardan donuldugunde) bir kez bak.
     LaunchedEffect(refreshKey) {
-        if (Prefs.autoUpdate && status is UpdateStatus.Idle) check(manual = false)
+        if (status !is UpdateStatus.Idle) return@LaunchedEffect
+        Updater.check(ctx).onSuccess { rel -> if (rel != null) downloadAndInstall(rel) }
     }
 
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = if (status is UpdateStatus.Available) Surface2 else Surface1
-        )
+    val visible = status is UpdateStatus.Downloading || status is UpdateStatus.Ready
+    AnimatedVisibility(
+        visible = visible,
+        enter = fadeIn() + expandVertically(),
+        exit = fadeOut() + shrinkVertically()
     ) {
-        Column(Modifier.padding(16.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text("Sürüm $currentName", color = TextHi, fontSize = 15.sp)
-                    Text(statusLine(status, current), color = statusColor(status), fontSize = 12.sp)
-                }
-                TextButton(onClick = { check(manual = true) }) {
-                    Text("Kontrol et", color = Orange, fontSize = 13.sp)
-                }
-            }
-
-            when (val s = status) {
-                is UpdateStatus.Available -> {
-                    Spacer(Modifier.height(10.dp))
-                    if (s.release.notes.isNotBlank()) {
-                        Text(s.release.notes, color = TextLo, fontSize = 12.sp)
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(16.dp),
+            colors = CardDefaults.cardColors(containerColor = Surface2)
+        ) {
+            Column(Modifier.padding(16.dp)) {
+                when (val s = status) {
+                    is UpdateStatus.Downloading -> {
+                        Text("Güncelleme iniyor", color = TextHi, fontSize = 15.sp)
                         Spacer(Modifier.height(10.dp))
-                    }
-                    if (!Updater.canInstall(ctx)) {
-                        InstallPermissionNotice(ctx)
-                        Spacer(Modifier.height(8.dp))
-                    }
-                    Button(
-                        onClick = { downloadAndInstall(s.release) },
-                        modifier = Modifier.fillMaxWidth().height(48.dp),
-                        shape = RoundedCornerShape(12.dp),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = Orange, contentColor = Ink
+                        LinearProgressIndicator(
+                            progress = { s.percent / 100f },
+                            modifier = Modifier.fillMaxWidth(),
+                            color = Purple,
+                            trackColor = Ink
                         )
-                    ) {
-                        Text("İndir ve kur", fontWeight = FontWeight.Bold)
                     }
-                }
 
-                is UpdateStatus.Downloading -> {
-                    Spacer(Modifier.height(12.dp))
-                    LinearProgressIndicator(
-                        progress = { s.percent / 100f },
-                        modifier = Modifier.fillMaxWidth(),
-                        color = Orange,
-                        trackColor = Surface2
-                    )
-                }
-
-                is UpdateStatus.Ready -> {
-                    Spacer(Modifier.height(10.dp))
-                    if (!Updater.canInstall(ctx)) InstallPermissionNotice(ctx)
-                    Button(
-                        onClick = { Updater.install(ctx, s.apk) },
-                        modifier = Modifier.fillMaxWidth().height(48.dp),
-                        shape = RoundedCornerShape(12.dp),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = Orange, contentColor = Ink
+                    is UpdateStatus.Ready -> {
+                        Text("Güncelleme hazır", color = TextHi, fontSize = 15.sp)
+                        Text(
+                            "Kurmak için tek dokunuş yeter.",
+                            color = TextLo, fontSize = 12.sp
                         )
-                    ) {
-                        Text("Kurulumu aç", fontWeight = FontWeight.Bold)
+                        Spacer(Modifier.height(12.dp))
+                        Button(
+                            onClick = {
+                                if (Updater.canInstall(ctx)) {
+                                    Updater.install(ctx, s.apk)
+                                } else {
+                                    ctx.startActivity(Updater.installPermissionIntent(ctx))
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth().height(48.dp),
+                            shape = RoundedCornerShape(12.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = Purple, contentColor = Ink
+                            )
+                        ) {
+                            Text(
+                                if (Updater.canInstall(ctx)) "Kur" else "İzin ver ve kur",
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
                     }
-                }
 
-                else -> Unit
+                    else -> Unit
+                }
             }
         }
     }
-}
-
-@Composable
-private fun InstallPermissionNotice(ctx: Context) {
-    Column {
-        Text(
-            "Kurulum için \"bu kaynaktan uygulama yükle\" iznini vermen gerekiyor.",
-            color = TextLo, fontSize = 12.sp
-        )
-        Spacer(Modifier.height(6.dp))
-        TextButton(onClick = { ctx.startActivity(Updater.installPermissionIntent(ctx)) }) {
-            Text("İzin ekranını aç", color = Orange, fontSize = 13.sp)
-        }
-    }
-}
-
-private fun statusLine(status: UpdateStatus, current: Long): String = when (status) {
-    UpdateStatus.Idle -> "Sürüm kodu $current"
-    UpdateStatus.Checking -> "Güncelleme aranıyor..."
-    UpdateStatus.UpToDate -> "Güncel"
-    is UpdateStatus.Available -> "Yeni sürüm var: ${status.release.versionName}"
-    is UpdateStatus.Downloading -> "İndiriliyor %${status.percent}"
-    is UpdateStatus.Ready -> "İndirildi, kuruluma hazır"
-    is UpdateStatus.Failed -> status.message
-}
-
-private fun statusColor(status: UpdateStatus) = when (status) {
-    is UpdateStatus.Available, is UpdateStatus.Ready -> Orange
-    is UpdateStatus.Failed -> Bad
-    UpdateStatus.UpToDate -> Good
-    else -> TextLo
 }

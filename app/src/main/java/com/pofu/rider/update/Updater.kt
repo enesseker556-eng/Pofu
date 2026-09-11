@@ -6,7 +6,6 @@ import android.net.Uri
 import android.os.Build
 import android.util.Log
 import androidx.core.content.FileProvider
-import com.pofu.rider.core.Prefs
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
@@ -51,11 +50,16 @@ object Updater {
      * release yayinlanamiyor. Depo public oldugu icin ham dosya adresi hem
      * token istemiyor hem de her push'ta kendiliginden guncel oluyor.
      */
-    private fun manifestUrl(repo: String) =
-        "https://raw.githubusercontent.com/$repo/main/dist/version.json"
+    /**
+     * Depo adresi bilerek sabit: kullanici arayuzunde degistirilebilir olsaydi
+     * yanlis bir deger girildiginde guncelleme sessizce olurdu.
+     */
+    private const val REPO = "enesseker556-eng/Pofu"
 
-    private fun apkUrl(repo: String, path: String) =
-        "https://github.com/$repo/raw/main/$path"
+    private const val MANIFEST_URL =
+        "https://raw.githubusercontent.com/$REPO/main/dist/version.json"
+
+    private fun apkUrl(path: String) = "https://github.com/$REPO/raw/main/$path"
 
     /** Telefonda kurulu olan surum. */
     fun currentVersionCode(ctx: Context): Long {
@@ -74,10 +78,7 @@ object Updater {
     /** Son surumu sorgular. Guncel ise null doner. */
     suspend fun check(ctx: Context): Result<Release?> = withContext(Dispatchers.IO) {
         runCatching {
-            val repo = Prefs.updateRepo
-            if (repo.isBlank()) error("Guncelleme deposu ayarlanmamis")
-
-            val obj = JSONObject(httpGet(manifestUrl(repo), "application/json"))
+            val obj = JSONObject(httpGet(MANIFEST_URL, "application/json"))
             val code = obj.optLong("versionCode", -1L)
             if (code < 0) error("version.json icinde versionCode yok")
 
@@ -85,9 +86,8 @@ object Updater {
                 versionCode = code,
                 versionName = obj.optString("versionName").ifBlank { "v$code" },
                 notes = obj.optString("notes").take(500),
-                downloadUrl = apkUrl(repo, obj.optString("apk").ifBlank { "dist/pofu.apk" })
+                downloadUrl = apkUrl(obj.optString("apk").ifBlank { "dist/pofu.apk" })
             )
-            Prefs.lastCheckAt = System.currentTimeMillis()
             if (release.versionCode > currentVersionCode(ctx)) release else null
         }
     }
@@ -171,11 +171,6 @@ object Updater {
                 readTimeout = 60_000
                 setRequestProperty("Accept", accept)
                 setRequestProperty("User-Agent", "Pofu-Updater")
-                setRequestProperty("X-GitHub-Api-Version", "2022-11-28")
-                val token = Prefs.githubToken
-                if (token.isNotBlank() && current.startsWith("https://api.github.com")) {
-                    setRequestProperty("Authorization", "Bearer $token")
-                }
             }
             when (val code = conn.responseCode) {
                 in 200..299 -> return conn
@@ -185,15 +180,9 @@ object Updater {
                     if (next.isNullOrBlank()) error("Yonlendirme adresi yok")
                     current = next
                 }
-                401, 403 -> {
-                    val body = conn.errorStream?.bufferedReader()?.use { it.readText() }.orEmpty()
-                    conn.disconnect()
-                    Log.w(TAG, "yetki hatasi: $body")
-                    error("Yetki reddedildi ($code) - repo private ise token gerekli")
-                }
                 404 -> {
                     conn.disconnect()
-                    error("Bulunamadi (404) - depo adi yanlis veya henuz release yok")
+                    error("Guncelleme dosyasi bulunamadi")
                 }
                 else -> {
                     conn.disconnect()

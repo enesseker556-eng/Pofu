@@ -94,7 +94,8 @@ private fun RideScreen() {
 
         Text(
             when (state.phase) {
-                Phase.STOPPED -> "SÜRÜŞ MODU KAPALI"
+                Phase.STOPPED -> "KAPALI"
+                Phase.STARTING -> "HAZIRLANIYOR"
                 Phase.WAITING -> "HAZIR"
                 Phase.LISTENING -> "DİNLİYORUM"
                 Phase.WORKING -> "..."
@@ -105,7 +106,7 @@ private fun RideScreen() {
             fontWeight = FontWeight.Bold
         )
         Text(
-            if (state.phase == Phase.WAITING) "\"${state.wakeWord}\" de" else " ",
+            if (state.phase == Phase.WAITING) "\"Hey Panda\" de" else " ",
             color = TextLo, fontSize = 13.sp
         )
 

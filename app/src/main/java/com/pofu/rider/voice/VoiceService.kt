@@ -4,21 +4,17 @@ import android.app.Notification
 import android.app.PendingIntent
 import android.app.Service
 import android.content.BroadcastReceiver
-import android.content.IntentFilter
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.ServiceInfo
 import android.media.AudioManager
 import android.media.ToneGenerator
 import android.os.Build
-import android.os.Bundle
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
 import android.os.PowerManager
-import android.speech.RecognitionListener
-import android.speech.RecognizerIntent
-import android.speech.SpeechRecognizer
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
@@ -36,11 +32,11 @@ import kotlinx.coroutines.flow.asStateFlow
 /**
  * Surus modunun motoru.
  *
- * Dongu: wake word beklenir -> bip -> komut dinlenir -> komut uygulanir ->
- * sesli cevap verilir -> tekrar beklemeye doner.
+ * Tek bir cihaz ustu tanima akisi calisiyor: "Hey Panda" duyulunca bip calip
+ * komutu bekliyor, komut gelince uygulayip sesli cevap veriyor ve tekrar
+ * uyandirma beklemeye doniyor.
  *
- * Wake word ile konusma tanima ayni mikrofonu paylasamaz; bu yuzden dinlemeye
- * gecerken wake word duraklatilir, is bitince geri acilir.
+ * Konusurken mikrofon duraklatiliyor, yoksa kendi sesini komut saniyor.
  */
 class VoiceService : Service() {
 
@@ -49,19 +45,14 @@ class VoiceService : Service() {
     private lateinit var executor: CommandExecutor
     private lateinit var speaker: Speaker
     private lateinit var audioRoute: AudioRoute
-    private lateinit var wakeWord: WakeWordEngine
+    private lateinit var engine: VoskEngine
 
-    private var recognizer: SpeechRecognizer? = null
     private var wakeLock: PowerManager.WakeLock? = null
     private var tone: ToneGenerator? = null
     private var testReceiver: BroadcastReceiver? = null
 
-    /** Ayni anda iki dinleme baslatmamak icin. */
+    /** Bir komut islenirken ikincisine baslamamak icin. */
     private var busy = false
-
-    /** Her dinleme dongusu icin artan sayac: gecikmeli geri cagrilarin
-     *  bir sonraki donguyu bozmasini engeller. */
-    private var cycleId = 0
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -71,41 +62,16 @@ class VoiceService : Service() {
         executor = CommandExecutor(this)
         speaker = Speaker(this)
         audioRoute = AudioRoute(this)
-        wakeWord = WakeWordEngine(this) { main.post { onWakeWordDetected() } }
         tone = runCatching { ToneGenerator(AudioManager.STREAM_NOTIFICATION, 80) }.getOrNull()
-        Log.i(TAG, "onCreate; debug=${BuildConfig.DEBUG}")
-        registerTestReceiver()
-    }
 
-    /**
-     * Sadece debug derlemesinde: mikrofonu atlayip komut metnini dogrudan besler.
-     * Emulatorde mikrofon olmadigi icin tum komutlari boyle deneyebiliyoruz.
-     *
-     *   adb shell am broadcast -a com.pofu.rider.TEST_COMMAND \
-     *       -p com.pofu.rider --es text "ahmeti ara"
-     */
-    private fun registerTestReceiver() {
-        if (!BuildConfig.DEBUG) return
-        testReceiver = object : BroadcastReceiver() {
-            override fun onReceive(context: Context?, intent: Intent?) {
-                val text = intent?.getStringExtra("text").orEmpty()
-                if (text.isBlank()) return
-                Log.i(TAG, "TEST komut: $text")
-                main.post {
-                    busy = true
-                    cycleId++
-                    handleResults(listOf(text))
-                }
-            }
-        }
-        Log.i(TAG, "test alicisi kaydediliyor")
-        val filter = IntentFilter("com.pofu.rider.TEST_COMMAND")
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            registerReceiver(testReceiver, filter, RECEIVER_EXPORTED)
-        } else {
-            @Suppress("UnspecifiedRegisterReceiverFlag")
-            registerReceiver(testReceiver, filter)
-        }
+        engine = VoskEngine(
+            ctx = this,
+            onWake = { main.post { onWake() } },
+            onCommand = { text -> main.post { onCommand(text) } },
+            onPartial = { text -> main.post { update(state.value.copy(heard = text)) } },
+            onState = { ready, error -> main.post { onEngineState(ready, error) } }
+        )
+        registerTestReceiver()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -116,7 +82,7 @@ class VoiceService : Service() {
             }
             ACTION_LISTEN -> {
                 startForegroundSafely()
-                main.post { onWakeWordDetected() }
+                if (engine.isReady) engine.forceWake() else engine.start()
                 return START_STICKY
             }
         }
@@ -124,167 +90,100 @@ class VoiceService : Service() {
         startForegroundSafely()
         Prefs.serviceEnabled = true
         acquireWakeLock()
+        audioRoute.enableBluetoothMic()
 
-        if (Prefs.useBluetoothMic) audioRoute.enableBluetoothMic()
-
-        val ok = wakeWord.start()
-        update(
-            state.value.copy(
-                phase = Phase.WAITING,
-                wakeWord = wakeWord.activeKeyword,
-                error = if (ok) null else wakeWord.lastError
-            )
-        )
+        update(state.value.copy(phase = Phase.STARTING))
         notifyUpdate()
+        engine.start()
+        scheduleTick()
         return START_STICKY
     }
 
-    // ---------------------------------------------------------------- dinleme
+    // ----------------------------------------------------------------- akis
 
-    private fun onWakeWordDetected() {
+    private fun onEngineState(ready: Boolean, error: String?) {
+        update(
+            state.value.copy(
+                phase = if (ready) Phase.WAITING else Phase.STARTING,
+                error = error
+            )
+        )
+        notifyUpdate()
+    }
+
+    private fun onWake() {
         if (busy) return
-        busy = true
-        cycleId++
-        wakeWord.pause()
         beep()
         update(state.value.copy(phase = Phase.LISTENING, heard = "", reply = "", error = null))
         notifyUpdate()
-        // Bip sesi bitene kadar kisa bir nefes, yoksa bip'i komut saniyor.
-        main.postDelayed({ startRecognition() }, 250)
     }
 
-    private fun startRecognition() {
-        if (!SpeechRecognizer.isRecognitionAvailable(this)) {
-            finishCycle("Konusma tanima bu telefonda yok")
-            return
-        }
-        recognizer?.let { runCatching { it.destroy() } }
-        val sr = SpeechRecognizer.createSpeechRecognizer(this)
-        recognizer = sr
-        sr.setRecognitionListener(listener)
+    private fun onCommand(text: String) {
+        if (busy) return
+        busy = true
+        update(state.value.copy(phase = Phase.WORKING, heard = text))
+        notifyUpdate()
 
-        val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-            putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-            putExtra(RecognizerIntent.EXTRA_LANGUAGE, "tr-TR")
-            putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 5)
-            putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, packageName)
-            putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
-            putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 1200L)
-            putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 1000L)
-        }
-        try {
-            sr.startListening(intent)
-        } catch (e: Exception) {
-            Log.e(TAG, "startListening", e)
-            finishCycle("Mikrofon acilamadi")
-        }
-    }
-
-    private val listener = object : RecognitionListener {
-        override fun onReadyForSpeech(params: Bundle?) = Unit
-        override fun onBeginningOfSpeech() = Unit
-        override fun onRmsChanged(rmsdB: Float) = Unit
-        override fun onBufferReceived(buffer: ByteArray?) = Unit
-        override fun onEvent(eventType: Int, params: Bundle?) = Unit
-
-        override fun onEndOfSpeech() {
-            update(state.value.copy(phase = Phase.WORKING))
-        }
-
-        override fun onPartialResults(partialResults: Bundle?) {
-            val text = partialResults
-                ?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
-                ?.firstOrNull()
-                .orEmpty()
-            if (text.isNotBlank()) update(state.value.copy(heard = text))
-        }
-
-        override fun onResults(results: Bundle?) {
-            val candidates = results
-                ?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
-                ?.filter { it.isNotBlank() }
-                .orEmpty()
-            handleResults(candidates)
-        }
-
-        override fun onError(error: Int) {
-            finishCycle(errorMessage(error))
-        }
-    }
-
-    /**
-     * Konusma tanima birden fazla aday dondurur. Anlasilir ilk adayi secmek,
-     * en yuksek skorluya korce guvenmekten daha iyi sonuc veriyor: motorda
-     * birinci aday sik sik bozuk geliyor ama ikincisi dogru cikiyor.
-     */
-    private fun handleResults(candidates: List<String>) {
-        if (candidates.isEmpty()) {
-            finishCycle("Anlamadim")
-            return
-        }
-        update(state.value.copy(heard = candidates.first(), phase = Phase.WORKING))
-
-        var chosen: Command = Command.Unknown(candidates.first())
-        for (c in candidates) {
-            val parsed = CommandParser.parse(c)
-            if (parsed !is Command.Unknown) {
-                chosen = parsed
-                break
-            }
-        }
-
+        val cmd = CommandParser.parse(text)
         val reply = try {
-            executor.execute(chosen)
+            executor.execute(cmd)
         } catch (e: Exception) {
             Log.e(TAG, "komut uygulanamadi", e)
             "Bir sorun cikti"
         }
-        Log.i(TAG, "SONUC duyulan=\"${candidates.first()}\" komut=$chosen cevap=\"$reply\"")
+        Log.i(TAG, "SONUC duyulan=\"$text\" komut=$cmd cevap=\"$reply\"")
         finishCycle(reply)
     }
 
-    /** Cevabi soyler, kaynaklari birakir, wake word'u geri acar. */
+    /** Cevabi soyler, sonra tekrar uyandirma beklemeye doner. */
     private fun finishCycle(reply: String) {
-        recognizer?.let { runCatching { it.cancel(); it.destroy() } }
-        recognizer = null
-
         update(state.value.copy(phase = Phase.SPEAKING, reply = reply))
         notifyUpdate()
 
-        val thisCycle = cycleId
         val backToWaiting = Runnable {
-            if (!busy || cycleId != thisCycle) return@Runnable
+            if (!busy) return@Runnable
             busy = false
+            engine.pause(false)
             update(state.value.copy(phase = Phase.WAITING))
-            wakeWord.resume()
             notifyUpdate()
         }
 
         if (reply.isNotBlank() && Prefs.speakFeedback) {
-            speaker.say(reply) { main.post(backToWaiting) }
+            // Kendi sesimizi duymamak icin konusurken mikrofonu kapatiyoruz.
+            engine.pause(true)
+            speaker.say(reply) { main.postDelayed(backToWaiting, 250) }
             // TTS hic geri donmezse dinleme sonsuza kadar kapali kalmasin.
-            main.postDelayed(backToWaiting, 6000)
+            main.postDelayed(backToWaiting, 8000)
         } else {
-            main.postDelayed(backToWaiting, 300)
+            main.postDelayed(backToWaiting, 250)
         }
     }
 
-    private fun errorMessage(code: Int): String = when (code) {
-        SpeechRecognizer.ERROR_NO_MATCH -> "Anlamadim"
-        SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> ""
-        SpeechRecognizer.ERROR_AUDIO -> "Mikrofon hatasi"
-        SpeechRecognizer.ERROR_NETWORK,
-        SpeechRecognizer.ERROR_NETWORK_TIMEOUT -> "Internet yok"
-        SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> "Mikrofon izni yok"
-        SpeechRecognizer.ERROR_RECOGNIZER_BUSY -> ""
-        else -> "Anlamadim"
+    /**
+     * Uyandiktan sonra komut gelmezse motor komut dinleme modunda asili
+     * kalmasin diye saniyede bir yokluyoruz.
+     */
+    private fun scheduleTick() {
+        main.postDelayed(tickRunnable, 1000)
+    }
+
+    private val tickRunnable = object : Runnable {
+        override fun run() {
+            val before = state.value.phase
+            engine.tick()
+            if (before == Phase.LISTENING && !busy && !engine.isAwake) {
+                update(state.value.copy(phase = Phase.WAITING))
+                notifyUpdate()
+            }
+            main.postDelayed(this, 1000)
+        }
     }
 
     private fun beep() {
         runCatching { tone?.startTone(ToneGenerator.TONE_PROP_BEEP, 120) }
     }
 
-    // -------------------------------------------------------------- bildirim
+    // ------------------------------------------------------------ bildirim
 
     private fun startForegroundSafely() {
         val notif = buildNotification()
@@ -298,10 +197,11 @@ class VoiceService : Service() {
     private fun buildNotification(): Notification {
         val s = state.value
         val text = when (s.phase) {
+            Phase.STARTING -> s.error ?: "Hazırlanıyor..."
             Phase.LISTENING -> "Dinliyorum..."
-            Phase.WORKING -> s.heard.ifBlank { "Isleniyor..." }
+            Phase.WORKING -> s.heard.ifBlank { "İşleniyor..." }
             Phase.SPEAKING -> s.reply.ifBlank { "..." }
-            else -> s.wakeWord + " bekleniyor"
+            else -> "\"Hey Panda\" de"
         }
         val open = PendingIntent.getActivity(
             this, 0,
@@ -315,7 +215,7 @@ class VoiceService : Service() {
         )
         return NotificationCompat.Builder(this, PofuApp.CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_notification)
-            .setContentTitle("Pofu surus modu")
+            .setContentTitle("Pofu sürüş modu")
             .setContentText(text)
             .setContentIntent(open)
             .addAction(0, "Durdur", stop)
@@ -339,14 +239,58 @@ class VoiceService : Service() {
         }
     }
 
+    /**
+     * Sadece debug derlemesinde: mikrofonu atlayip komut metnini dogrudan besler.
+     *
+     *   adb shell am broadcast -a com.pofu.rider.TEST_COMMAND \
+     *       -p com.pofu.rider --es text "ahmeti ara"
+     */
+    private fun registerTestReceiver() {
+        if (!BuildConfig.DEBUG) return
+        testReceiver = object : BroadcastReceiver() {
+            override fun onReceive(context: Context?, intent: Intent?) {
+                intent?.getStringExtra("grammar")?.let { g ->
+                    // Sozluk testi: "pofu" modelin kelime dagarciginda var mi?
+                    Thread {
+                        val wav = intent.getStringExtra("wav") ?: "/data/local/tmp/wake.wav"
+                        val heard = engine.transcribeFile(wav, g)
+                        Log.i(TAG, "DILBILGISI g=$g duyulan=\"$heard\"")
+                    }.start()
+                    return
+                }
+                intent?.getStringExtra("wav")?.let { path ->
+                    // Ses hatti testi: dosyayi modele verip ne duydugunu yaz.
+                    Thread {
+                        val heard = engine.transcribeFile(path)
+                        val wake = com.pofu.rider.core.WakeWord.isMatch(heard)
+                        val rest = com.pofu.rider.core.WakeWord.remainder(heard)
+                        Log.i(TAG, "SES dosya=\"$path\" duyulan=\"$heard\" uyandi=$wake kalan=\"$rest\"")
+                    }.start()
+                    return
+                }
+                val text = intent?.getStringExtra("text").orEmpty()
+                if (text.isBlank()) return
+                main.post {
+                    busy = false
+                    onCommand(text)
+                }
+            }
+        }
+        val filter = IntentFilter("com.pofu.rider.TEST_COMMAND")
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(testReceiver, filter, RECEIVER_EXPORTED)
+        } else {
+            @Suppress("UnspecifiedRegisterReceiverFlag")
+            registerReceiver(testReceiver, filter)
+        }
+    }
+
     override fun onDestroy() {
         Prefs.serviceEnabled = false
         main.removeCallbacksAndMessages(null)
-        recognizer?.let { runCatching { it.destroy() } }
-        recognizer = null
         testReceiver?.let { runCatching { unregisterReceiver(it) } }
         testReceiver = null
-        wakeWord.release()
+        engine.release()
         speaker.release()
         audioRoute.release()
         tone?.release()
@@ -378,7 +322,7 @@ class VoiceService : Service() {
             ctx.startService(Intent(ctx, VoiceService::class.java).setAction(ACTION_STOP))
         }
 
-        /** Wake word'u beklemeden dogrudan dinlemeye gecer (ekran veya kask butonu). */
+        /** Uyandirmayi beklemeden dinlemeye gecer (ekrandaki mikrofon tusu). */
         fun triggerListen(ctx: Context) {
             ctx.startForegroundService(
                 Intent(ctx, VoiceService::class.java).setAction(ACTION_LISTEN)
