@@ -7,4 +7,5 @@ captures/
 .externalNativeBuild/
 .cxx/
 *.apk
+!dist/pofu.apk
 *.keystore
