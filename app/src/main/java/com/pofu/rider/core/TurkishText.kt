@@ -29,9 +29,9 @@ object TurkishText {
             }
         }
         val stripped = Normalizer.normalize(sb.toString(), Normalizer.Form.NFD)
-            .replace(Regex("\p{Mn}+"), "")
+            .replace(Regex("""\p{Mn}+"""), "")
         return stripped.replace(Regex("[^a-z0-9 ]"), " ")
-            .replace(Regex("\s+"), " ")
+            .replace(Regex("""\s+"""), " ")
             .trim()
     }
 
