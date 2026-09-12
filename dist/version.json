@@ -1,6 +1,6 @@
 {
-  "versionCode": 5,
-  "versionName": "1.4",
-  "notes": "Uyandırma motoru sadeleşti; sürüş ekranı artık duyduğu her şeyi canlı gösteriyor.",
+  "versionCode": 6,
+  "versionName": "2.0",
+  "notes": "Yeni motor: Dicio tabanlı, arka planda \"Hey Dicio\" ile uyanır.",
   "apk": "dist/pofu.apk"
 }
