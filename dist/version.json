@@ -1,6 +1,6 @@
 {
-  "versionCode": 4,
-  "versionName": "1.3",
-  "notes": "Hey Panda uyandırma sözü artık gerçekten çalışıyor: cihaz üzerinde, internetsiz, anahtarsız.",
+  "versionCode": 5,
+  "versionName": "1.4",
+  "notes": "Uyandırma motoru sadeleşti; sürüş ekranı artık duyduğu her şeyi canlı gösteriyor.",
   "apk": "dist/pofu.apk"
 }

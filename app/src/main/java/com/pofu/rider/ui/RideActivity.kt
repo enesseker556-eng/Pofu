@@ -116,7 +116,9 @@ private fun RideScreen() {
 
         Spacer(Modifier.height(18.dp))
 
-        // Duyulan ve cevap satirlari: gozu yolda tutmak icin tek satir, buyuk punto.
+        // Duyulan satiri artik uyandirmayi beklerken de canli akiyor: mikrofonun
+        // seni duyup duymadigi tek bakista belli oluyor. Bos kaliyorsa ses hic
+        // gelmiyor demektir, uyandirma sozunu aramaya gerek yok.
         Text(
             state.heard.ifBlank { "—" },
             color = TextHi, fontSize = 22.sp,

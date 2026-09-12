@@ -48,7 +48,7 @@ class VoskEngine(
             ctx, MODEL_ASSET, MODEL_DIR,
             { m ->
                 model = m
-                listenIn(wakePhase = true)
+                listenNow()
             },
             { e ->
                 Log.e(TAG, "model acilamadi", e)
@@ -58,33 +58,27 @@ class VoskEngine(
     }
 
     /**
-     * Iki asamali dinleme.
+     * Tek bir serbest tanima akisi. Faz degistirme yok.
      *
-     * Bekleme asamasinda tanima motorunu sadece uyandirma sozune kilitliyoruz:
-     * boylece model butun sozluk yerine "uyandirma mi, degil mi" diye karar
-     * veriyor. Olculdu - serbest modda uyandirma kaciyordu, kilitli modda
-     * aksanli ses bile tutuyor, gurultulu cumle ise hic tetiklemiyor.
-     *
-     * Uyandiktan sonra serbest moda geciyoruz, cunku komutta rehberdeki
-     * isimler gibi onceden bilinemeyen kelimeler var.
+     * Onceki surumde bekleme asamasinda motor sadece uyandirma sozune
+     * kilitleniyordu. Daha isabetliydi ama iki sorunu vardi: ne duydugunu
+     * gosteremiyorduk (kilitli mod ya uyandirma yazar ya hicbir sey), ve her
+     * uyandirmada tanima motoru yikilip yeniden kuruluyordu - bir suru
+     * hareketli parca. Tek akis, hem gozlemlenebilir hem de tek nefeste
+     * soylenen "hey panda sonraki" gibi cumleleri boluyor.
      */
-    private fun listenIn(wakePhase: Boolean) {
+    private fun listenNow() {
         val m = model ?: return
         try {
             speech?.let {
                 runCatching { it.stop() }
                 runCatching { it.shutdown() }
             }
-            val rec = if (wakePhase) {
-                Recognizer(m, SAMPLE_RATE, WAKE_GRAMMAR)
-            } else {
-                Recognizer(m, SAMPLE_RATE)
-            }
-            val service = SpeechService(rec, SAMPLE_RATE)
+            val service = SpeechService(Recognizer(m, SAMPLE_RATE), SAMPLE_RATE)
             service.startListening(listener)
             speech = service
             onState(true, null)
-            Log.i(TAG, if (wakePhase) "uyandirma bekleniyor" else "komut dinleniyor")
+            Log.i(TAG, "dinleme basladi")
         } catch (e: Throwable) {
             Log.e(TAG, "dinleme baslatilamadi", e)
             onState(false, "Mikrofon açılamadı")
@@ -96,27 +90,24 @@ class VoskEngine(
         override fun onPartialResult(hypothesis: String?) {
             val text = hypothesis.toJsonField("partial")
             if (text.isBlank()) return
-
-            if (!awake) {
-                // Uyandirmayi kismi sonuctan yakaliyoruz: cumlenin bitmesini
-                // beklemek yarim saniye gecikme demek, motorda fark ediliyor.
-                if (WakeWord.isMatch(text)) wake()
-            } else {
-                onPartial(text)
-            }
+            // Ne duydugumuzu her zaman disari veriyoruz; mikrofonun calisip
+            // calismadigini kullanici ekrandan gorebilsin.
+            onPartial(text)
+            if (!awake && WakeWord.isMatch(text)) wake()
         }
 
         override fun onResult(hypothesis: String?) {
             val text = hypothesis.toJsonField("text")
             if (text.isBlank()) return
+            Log.i(TAG, "duyulan: \"$text\" (uyanik=$awake)")
+            onPartial(text)
 
             if (!awake) {
-                if (WakeWord.isMatch(text)) {
-                    // "Hey Pofu Ahmet'i ara" tek nefeste soylenmis olabilir.
-                    val rest = WakeWord.remainder(text)
-                    wake()
-                    if (rest.isNotBlank()) deliver(rest)
-                }
+                if (!WakeWord.isMatch(text)) return
+                // "hey panda sonraki" tek nefeste soylenmis olabilir.
+                val rest = WakeWord.remainder(text)
+                wake()
+                if (rest.isNotBlank()) deliver(rest)
                 return
             }
             deliver(text)
@@ -137,21 +128,16 @@ class VoskEngine(
         awake = true
         awakeUntil = System.currentTimeMillis() + AWAKE_WINDOW_MS
         onWake()
-        listenIn(wakePhase = false)
     }
 
     /** Komut gelmezse uyandirma beklemeye geri don. */
     fun tick() {
-        if (awake && System.currentTimeMillis() > awakeUntil) {
-            awake = false
-            listenIn(wakePhase = true)
-        }
+        if (awake && System.currentTimeMillis() > awakeUntil) awake = false
     }
 
     private fun deliver(text: String) {
         val inTime = System.currentTimeMillis() <= awakeUntil
         awake = false
-        listenIn(wakePhase = true)
         // Uyandirmanin uzerinden cok gectiyse bu cumle komut degil, sohbet.
         if (inTime) onCommand(text)
     }
@@ -176,6 +162,19 @@ class VoskEngine(
         runCatching { model?.close() }
         model = null
         awake = false
+    }
+
+    /**
+     * Sadece test icin: tanima motorunun geri cagrisini birebir taklit eder.
+     * Onemli olan metin degil, HANGI IS PARCACIGINDAN geldigi: gercekte bu
+     * cagri Vosk'un kendi is parcacigindan gelir ve faz gecisi orada kilitlenir.
+     */
+    fun debugSimulateRecognition(text: String) {
+        Thread({
+            val json = org.json.JSONObject().put("text", text).toString()
+            listener.onResult(json)
+            Log.i(TAG, "SIM geri dondu: $text")
+        }, "vosk-sim").start()
     }
 
     /**
@@ -221,10 +220,5 @@ class VoskEngine(
         /** Uyandiktan sonra komut icin taninan sure. */
         const val AWAKE_WINDOW_MS = 9000L
 
-        /**
-         * Bekleme asamasinin sozlugu. "[unk]" olmadan motor her sesi
-         * uyandirma sanmaya calisir ve surekli yanlis tetiklenir.
-         */
-        const val WAKE_GRAMMAR = "[\"hey panda\", \"panda\", \"[unk]\"]"
     }
 }

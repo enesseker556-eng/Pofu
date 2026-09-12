@@ -249,6 +249,11 @@ class VoiceService : Service() {
         if (!BuildConfig.DEBUG) return
         testReceiver = object : BroadcastReceiver() {
             override fun onReceive(context: Context?, intent: Intent?) {
+                intent?.getStringExtra("wake")?.let { t ->
+                    Log.i(TAG, "SIM baslatiliyor: $t")
+                    engine.debugSimulateRecognition(t)
+                    return
+                }
                 intent?.getStringExtra("grammar")?.let { g ->
                     // Sozluk testi: "pofu" modelin kelime dagarciginda var mi?
                     Thread {
